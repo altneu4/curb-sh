@@ -47,6 +47,15 @@ services:
     build: ./grafana
     container_name: curb-grafana
     restart: unless-stopped
+    # Grafana's image runs as a non-root user (UID 472) by default, which
+    # falls over on hosts where the bind-mounted data dir is governed by
+    # something beyond plain Unix permissions -- notably Synology DSM's ACL
+    # layer, which can silently deny an unmapped container UID even when
+    # `chown`/`chmod` look correct. Running as root sidesteps that class of
+    # problem the same way TimescaleDB's image already does (its entrypoint
+    # chowns its own data dir as root before dropping privileges) -- see
+    # docs/NAS.md's permissions section for the full story.
+    user: "0:0"
     depends_on:
       timescaledb:
         condition: service_healthy

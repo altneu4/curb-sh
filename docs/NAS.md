@@ -66,17 +66,40 @@ not committing `.env` to this repo (see `.gitignore`).
 
 TimescaleDB's official image runs its entrypoint as root initially and
 `chown`s `$PGDATA` to the postgres user before dropping privileges, so a
-freshly-created empty directory usually just works without any manual
-`chown`. Grafana's image does not do this -- it runs as UID `472` from the
-start, so a directory created by `mkdir` (owned by root or whoever ran it)
-will fail Grafana's startup with `mkdir: can't create directory
-'/var/lib/grafana/plugins': Permission denied`, repeating on every restart
-attempt. `scripts/init-data-dir.sh` (see step 1) does this `chown`
-automatically when run as root/`sudo` -- if you ran it without `sudo`, or
-you're hitting this on an existing deployment, fix it directly:
+freshly-created empty directory just works without any manual `chown`.
 
-```
+Grafana's image doesn't do this -- it runs as UID `472` from the start, so
+by default a directory created by `mkdir` fails Grafana's startup with
+`mkdir: can't create directory '/var/lib/grafana/plugins': Permission
+denied`, repeating on every restart. `chown -R 472:472` on the Grafana
+subdirectory fixes this on a plain Linux host -- but on Synology DSM
+specifically (and possibly other NAS platforms with their own ACL layer on
+top of Unix permissions), `chown` alone may not be enough: DSM's ACL system
+can silently override standard permission bits for a UID that doesn't
+correspond to any real Synology user account, denying access even when
+`ls -l` shows the directory as world-writable. Editing that ACL via
+`synoacltool` or File Station is possible but fiddly and DSM-version-
+dependent.
+
+Because of that, `docker-compose.yml` runs the `grafana` service as root
+(`user: "0:0"`) rather than relying on host-side ownership/ACLs at all --
+the same trust boundary TimescaleDB's image already crosses briefly during
+its own startup. `scripts/init-data-dir.sh` doesn't need to `chown`
+anything for this reason; both services now manage their own data
+directory permissions.
+
+If you'd rather keep Grafana running as its non-root default user (for a
+tighter security posture) than take this shortcut, remove the `user: "0:0"`
+line from the `grafana` service and either `chown -R 472:472` the directory
+(plain Linux hosts) or add an explicit ACL entry for it (Synology):
+
+```bash
+# plain Linux / most NAS platforms
 chown -R 472:472 /volume1/docker/curb-selfhosted/data/grafana
+
+# Synology DSM, if chown alone doesn't stick because of ACL enforcement
+synoacltool -add /volume1/docker/curb-selfhosted/data/grafana \
+  "everyone:allow:rwxpdDaARWc--:fd--"
 ```
 
 ## 4. Updating
