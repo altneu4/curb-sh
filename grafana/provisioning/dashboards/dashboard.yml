@@ -8,4 +8,7 @@ providers:
     disableDeletion: false
     updateIntervalSeconds: 30
     options:
-      path: /var/lib/grafana/dashboards
+      # Under /etc/grafana (not bind-mounted), not /var/lib/grafana (which
+      # is) -- see grafana/Dockerfile's comment for why that distinction
+      # matters here.
+      path: /etc/grafana/dashboards
