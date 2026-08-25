@@ -55,7 +55,23 @@ services:
     # problem the same way TimescaleDB's image already does (its entrypoint
     # chowns its own data dir as root before dropping privileges) -- see
     # docs/NAS.md's permissions section for the full story.
-    user: "0:0"
+    #
+    # Running as root grants every Linux capability by default, most of
+    # which Grafana has no use for. Drop everything and add back only what's
+    # needed to create/own files on whatever host filesystem it's mounted
+    # on (the actual point of running as root here) -- this keeps the
+    # permission fix while meaningfully shrinking what a container-escape
+    # exploit would have to work with.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
     depends_on:
       timescaledb:
         condition: service_healthy
