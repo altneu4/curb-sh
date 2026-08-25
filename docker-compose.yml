@@ -1,6 +1,6 @@
 services:
   timescaledb:
-    image: timescale/timescaledb:2.16.1-pg16
+    build: ./db
     container_name: curb-timescaledb
     restart: unless-stopped
     environment:
@@ -8,10 +8,17 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-curb}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      # Runs once, only against an empty data directory -- schema changes
-      # after first boot need a real migration, not an edit here.
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      # Bind-mounted (not a named volume) so the real data files sit at a
+      # path your own backup tooling -- NAS snapshots, rsync, etc. -- can
+      # reach directly. Defaults to ./data next to this file for a plain
+      # `docker compose up`; set CURB_DATA_DIR to an absolute path when
+      # deploying somewhere like a NAS/Portainer -- see docs/NAS.md.
+      #
+      # The schema init script (db/init/001_schema.sql) is baked into the
+      # image via db/Dockerfile rather than bind-mounted -- see that file's
+      # comment for why. Only the actual data directory is bind-mounted
+      # here.
+      - ${CURB_DATA_DIR:-./data}/pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-curb} -d ${POSTGRES_DB:-curb}"]
       interval: 5s
@@ -37,7 +44,7 @@ services:
       - "${CURB_RECEIVER_PORT:-8080}:8080"
 
   grafana:
-    image: grafana/grafana-oss:11.2.0
+    build: ./grafana
     container_name: curb-grafana
     restart: unless-stopped
     depends_on:
@@ -49,12 +56,11 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-curb}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
-      - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      # Same reasoning as timescaledb's pgdata mount above -- only the
+      # actual data directory is bind-mounted. The datasource/dashboard
+      # provisioning (grafana/provisioning, grafana/dashboards) is baked
+      # into the image via grafana/Dockerfile instead of bind-mounted --
+      # see that file's comment for why.
+      - ${CURB_DATA_DIR:-./data}/grafana:/var/lib/grafana
     ports:
       - "${GRAFANA_PORT:-3000}:3000"
-
-volumes:
-  pgdata:
-  grafana-data:
