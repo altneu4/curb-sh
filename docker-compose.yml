@@ -56,22 +56,17 @@ services:
     # chowns its own data dir as root before dropping privileges) -- see
     # docs/NAS.md's permissions section for the full story.
     #
-    # Running as root grants every Linux capability by default, most of
-    # which Grafana has no use for. Drop everything and add back only what's
-    # needed to create/own files on whatever host filesystem it's mounted
-    # on (the actual point of running as root here) -- this keeps the
-    # permission fix while meaningfully shrinking what a container-escape
-    # exploit would have to work with.
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
-      - SETUID
-      - SETGID
+    # A prior revision tried adding cap_drop/cap_add here to shrink root's
+    # capabilities, but the edit that introduced it accidentally deleted
+    # this `user: "0:0"` line rather than keeping both -- so what actually
+    # got tested was the non-root default user plus a few extra
+    # capabilities, not root with capabilities trimmed down. That's an
+    # untested, different configuration, not evidence the capability
+    # approach doesn't work. Reverted to plain, fully-privileged root
+    # (known working) rather than debug further against a live deployment.
+    # See docs/NAS.md's permissions section before retrying the capability
+    # restriction, and double-check the diff keeps this line.
+    user: "0:0"
     depends_on:
       timescaledb:
         condition: service_healthy
