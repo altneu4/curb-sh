@@ -1,0 +1,8 @@
+{
+  "endpoints": {
+    "hub_config": "http://<receiver-host>:8080/v3/hub_config",
+    "messages": "http://<receiver-host>:8080/v3/messages",
+    "samples": "http://<receiver-host>:8080/v3/samples",
+    "diagnostics": "http://<receiver-host>:8080/v3/diagnostics"
+  }
+}
