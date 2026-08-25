@@ -35,6 +35,23 @@ this in ways that are hard to diagnose later. If your NAS's Docker data
 root is already on a native filesystem (Btrfs, ext4, ZFS), a path under
 that is what you want.
 
+**Create the directory before your first deploy.** Docker Compose
+deliberately refuses to bind-mount a host path that doesn't already exist,
+rather than silently creating an empty one -- for a database data
+directory, silently creating an empty folder on a typo'd path would be
+worse than failing loudly, since it'd look like a successful deploy while
+actually starting from a blank database. Run this once, over SSH on the
+NAS, with the exact same path you're about to put in `CURB_DATA_DIR`:
+
+```bash
+./scripts/init-data-dir.sh /volume1/docker/curb-selfhosted/data
+```
+
+(Or `mkdir -p /volume1/docker/curb-selfhosted/data/{pgdata,grafana}` by
+hand -- the script just does that, plus double-checks the path you're
+about to use.) Skip this and you'll hit `Bind mount failed: ... does not
+exists` on deploy.
+
 ## 2. Deploying the stack in Portainer
 
 Add this as a Portainer **Stack**, either pointing at your Git repository
@@ -50,10 +67,13 @@ not committing `.env` to this repo (see `.gitignore`).
 TimescaleDB's official image runs its entrypoint as root initially and
 `chown`s `$PGDATA` to the postgres user before dropping privileges, so a
 freshly-created empty directory usually just works without any manual
-`chown`. Grafana's image is less consistently self-healing about this
-across versions -- if it fails to start with a permissions error on first
-boot, `chown` the Grafana subdirectory to UID `472` (Grafana's default
-container user) from your NAS's shell or file manager permission settings:
+`chown`. Grafana's image does not do this -- it runs as UID `472` from the
+start, so a directory created by `mkdir` (owned by root or whoever ran it)
+will fail Grafana's startup with `mkdir: can't create directory
+'/var/lib/grafana/plugins': Permission denied`, repeating on every restart
+attempt. `scripts/init-data-dir.sh` (see step 1) does this `chown`
+automatically when run as root/`sudo` -- if you ran it without `sudo`, or
+you're hitting this on an existing deployment, fix it directly:
 
 ```
 chown -R 472:472 /volume1/docker/curb-selfhosted/data/grafana
