@@ -27,42 +27,9 @@ You need root on the device first -- if you haven't done that yet, see the
 [`curbed`](https://github.com/codearranger/curbed) repo, which this project
 assumes you've already been through.
 
-The device's config lives at `/data/hub-config.json`, mounted read-write
-(no `remount,rw` dance needed, unlike edits to the rootfs itself). Only the
-`endpoints` block needs to change -- see [`examples/`](../examples/) for
-exactly what that looks like before and after, and
-`examples/README.md`'s warning about not confusing those example files
-with your device's real one.
-
-**Option A -- automatic (recommended).** Pull the device's real config
-down, patch it locally with the provided script, then push it back:
-
-```bash
-scp -O -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-    root@<curb-ip>:/data/hub-config.json ./hub-config.json
-
-python3 examples/apply_endpoint_patch.py --input hub-config.json --host <this-host>:8080
-
-scp -O -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-    ./hub-config.json root@<curb-ip>:/data/hub-config.json
-```
-
-(`-O` forces the legacy SCP protocol -- the device's dropbear SSH server
-doesn't have an SFTP subsystem, which newer `scp` clients try by default.)
-The script only ever touches the `endpoints` key -- your device's real
-sensor calibration, `hub_id`, and everything else in the file comes back
-out exactly as it went in. It also keeps a `hub-config.json.bak` of the
-untouched original alongside the patched file, in case you want to revert.
-
-**Option B -- by hand.** SSH in directly and edit the file with `vi`,
-using [`examples/endpoints-patch.json`](../examples/endpoints-patch.json)
-as a reference for exactly which four lines to change. Everything else in
-the file should be left untouched -- `config.lua`'s loader only requires a
-`revision` field to exist, so a partial, endpoints-only edit is safe either
-way.
-
-Either way, use plain HTTP, not HTTPS, so there's no certificate to worry
-about:
+Edit `/data/hub-config.json` on the device (it's mounted read-write, no
+`remount,rw` dance needed) and change the four endpoint URLs to point at
+this receiver, over plain HTTP so there's no certificate to worry about:
 
 ```json
 "endpoints": {
@@ -72,6 +39,9 @@ about:
   "diagnostics": "http://<this-host>:8080/v3/diagnostics"
 }
 ```
+
+Leave everything else in that file alone -- `config.lua`'s loader only
+requires a `revision` field to exist, so partial edits are safe.
 
 **Why HTTP instead of HTTPS:** the device's real streamer code
 (`samples-message.lua`, `hub-messaging.lua`) uses `curl` with certificate

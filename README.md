@@ -54,9 +54,6 @@ Curb device  --(HTTP, real Curb protocol)-->  receiver  -->  TimescaleDB  <--  G
 - **`grafana/`** -- pre-provisioned datasource + a starter "Curb Overview"
   dashboard (per-circuit power, per-leg voltage/frequency/power factor,
   device status).
-- **`examples/`** -- before/after `hub-config.json` examples and a script
-  that safely patches just the `endpoints` block of your device's real
-  config, leaving its actual sensor calibration untouched.
 
 ## Multiple devices, multiple people
 
