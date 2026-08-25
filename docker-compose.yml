@@ -1,0 +1,60 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.16.1-pg16
+    container_name: curb-timescaledb
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-curb}
+      - POSTGRES_USER=${POSTGRES_USER:-curb}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, only against an empty data directory -- schema changes
+      # after first boot need a real migration, not an edit here.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-curb} -d ${POSTGRES_DB:-curb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  receiver:
+    build: ./receiver
+    container_name: curb-receiver
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_DB=${POSTGRES_DB:-curb}
+      - POSTGRES_USER=${POSTGRES_USER:-curb}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      - CURB_VERIFY_CRC=${CURB_VERIFY_CRC:-false}
+    ports:
+      # Curb devices on the LAN talk to this port -- see docs/SETUP.md for
+      # pointing hub-config.json's endpoints here.
+      - "${CURB_RECEIVER_PORT:-8080}:8080"
+
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    container_name: curb-grafana
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      - POSTGRES_DB=${POSTGRES_DB:-curb}
+      - POSTGRES_USER=${POSTGRES_USER:-curb}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
+volumes:
+  pgdata:
+  grafana-data:

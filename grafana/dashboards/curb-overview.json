@@ -1,0 +1,121 @@
+{
+  "title": "Curb Overview",
+  "uid": "curb-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "serial",
+        "type": "query",
+        "label": "Device",
+        "datasource": { "type": "postgres", "uid": "timescale" },
+        "query": "SELECT DISTINCT serial_number FROM devices ORDER BY serial_number",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Devices",
+      "type": "table",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT serial_number AS \"Serial\", hub_id AS \"Hub ID\", last_seen_at AS \"Last Seen\", first_seen_at AS \"First Seen\" FROM devices ORDER BY last_seen_at DESC NULLS LAST",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Circuit Power (W) -- $serial",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 6 },
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "fieldConfig": { "defaults": { "unit": "watt" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS \"time\", watts AS \"value\", concat('G', group_idx, ' C', circuit_idx) AS metric FROM circuit_samples WHERE serial_number = '$serial' AND $__timeFilter(time) ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Total Power per Leg (kW) -- $serial",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 15 },
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "fieldConfig": { "defaults": { "unit": "kwatt" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS \"time\", true_power_kw AS \"value\", concat('Group ', group_idx) AS metric FROM group_samples WHERE serial_number = '$serial' AND $__timeFilter(time) ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Voltage -- $serial",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 6, "x": 12, "y": 15 },
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "fieldConfig": { "defaults": { "unit": "volt" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS \"time\", voltage AS \"value\", concat('Group ', group_idx) AS metric FROM group_samples WHERE serial_number = '$serial' AND $__timeFilter(time) ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Line Frequency (Hz) -- $serial",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 15 },
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "fieldConfig": { "defaults": { "unit": "hertz" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS \"time\", frequency AS \"value\", concat('Group ', group_idx) AS metric FROM group_samples WHERE serial_number = '$serial' AND $__timeFilter(time) ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Power Factor per Circuit -- $serial",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "fieldConfig": { "defaults": { "unit": "none", "min": -1, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS \"time\", power_factor AS \"value\", concat('G', group_idx, ' C', circuit_idx) AS metric FROM circuit_samples WHERE serial_number = '$serial' AND $__timeFilter(time) ORDER BY time"
+        }
+      ]
+    }
+  ]
+}
