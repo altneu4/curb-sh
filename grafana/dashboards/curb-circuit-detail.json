@@ -1,0 +1,154 @@
+{
+  "title": "Curb Circuit Detail",
+  "uid": "curb-circuit-detail",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "links": [
+    {
+      "title": "Curb Overview (whole-system summary)",
+      "type": "dashboards",
+      "tags": [],
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false,
+      "url": "/d/curb-overview"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "serial",
+        "type": "query",
+        "label": "Device",
+        "datasource": { "type": "postgres", "uid": "timescale" },
+        "query": "SELECT DISTINCT serial_number FROM devices ORDER BY serial_number",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "circuit",
+        "type": "query",
+        "label": "Circuit",
+        "datasource": { "type": "postgres", "uid": "timescale" },
+        "query": "SELECT DISTINCT concat(group_idx, '_', circuit_idx) AS __value, concat('Group ', group_idx, ' Circuit ', circuit_idx) AS __text FROM circuit_samples WHERE serial_number = '$serial' ORDER BY 1",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "price_per_1000kwh",
+        "type": "textbox",
+        "label": "Price per 1000 kWh ($)",
+        "description": "Substituted directly into SQL as a number -- enter a plain numeric value (e.g. 150), not currency-formatted text.",
+        "query": "150",
+        "current": { "text": "150", "value": "150" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Per-Circuit Detail",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 7,
+      "title": "Circuit Power (W) -- $circuit",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 1 },
+      "repeat": "circuit",
+      "repeatDirection": "v",
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "fieldConfig": { "defaults": { "unit": "watt" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS \"time\", watts AS \"value\", concat('G', group_idx, ' C', circuit_idx) AS metric FROM circuit_samples WHERE serial_number = '$serial' AND concat(group_idx, '_', circuit_idx) = '$circuit' AND $__timeFilter(time) ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "Circuit Usage & Cost (set price in the \"Price per 1000 kWh\" box above)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "id": 8,
+      "title": "Today -- $serial",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "kWh" }, "properties": [{ "id": "unit", "value": "none" }, { "id": "decimals", "value": 3 }] },
+          { "matcher": { "id": "byName", "options": "Cost ($)" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 2 }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH deltas AS (SELECT group_idx, circuit_idx, watts, EXTRACT(EPOCH FROM (time - LAG(time) OVER (PARTITION BY group_idx, circuit_idx ORDER BY time))) AS dt_seconds FROM circuit_samples WHERE serial_number = '$serial' AND time >= date_trunc('day', now())) SELECT concat('G', group_idx, ' C', circuit_idx) AS \"Circuit\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0)::numeric, 3) AS \"kWh\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0 * (${price_per_1000kwh} / 1000.0))::numeric, 2) AS \"Cost ($)\" FROM deltas GROUP BY group_idx, circuit_idx ORDER BY group_idx, circuit_idx"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "This Week -- $serial",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "kWh" }, "properties": [{ "id": "unit", "value": "none" }, { "id": "decimals", "value": 3 }] },
+          { "matcher": { "id": "byName", "options": "Cost ($)" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 2 }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH deltas AS (SELECT group_idx, circuit_idx, watts, EXTRACT(EPOCH FROM (time - LAG(time) OVER (PARTITION BY group_idx, circuit_idx ORDER BY time))) AS dt_seconds FROM circuit_samples WHERE serial_number = '$serial' AND time >= date_trunc('week', now())) SELECT concat('G', group_idx, ' C', circuit_idx) AS \"Circuit\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0)::numeric, 3) AS \"kWh\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0 * (${price_per_1000kwh} / 1000.0))::numeric, 2) AS \"Cost ($)\" FROM deltas GROUP BY group_idx, circuit_idx ORDER BY group_idx, circuit_idx"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "This Month -- $serial",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "kWh" }, "properties": [{ "id": "unit", "value": "none" }, { "id": "decimals", "value": 3 }] },
+          { "matcher": { "id": "byName", "options": "Cost ($)" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 2 }] }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH deltas AS (SELECT group_idx, circuit_idx, watts, EXTRACT(EPOCH FROM (time - LAG(time) OVER (PARTITION BY group_idx, circuit_idx ORDER BY time))) AS dt_seconds FROM circuit_samples WHERE serial_number = '$serial' AND time >= date_trunc('month', now())) SELECT concat('G', group_idx, ' C', circuit_idx) AS \"Circuit\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0)::numeric, 3) AS \"kWh\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0 * (${price_per_1000kwh} / 1000.0))::numeric, 2) AS \"Cost ($)\" FROM deltas GROUP BY group_idx, circuit_idx ORDER BY group_idx, circuit_idx"
+        }
+      ]
+    }
+  ]
+}
