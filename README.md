@@ -34,6 +34,7 @@ implement.
 ```bash
 cp .env.example .env
 # edit .env: set POSTGRES_PASSWORD and GRAFANA_ADMIN_PASSWORD
+./scripts/init-data-dir.sh
 docker compose up -d
 ```
 
@@ -46,6 +47,9 @@ backups).
 
 ```
 Curb device  --(HTTP, real Curb protocol)-->  receiver  -->  TimescaleDB  <--  Grafana
+                                                                  ^
+                                                                  |
+                                                          config-portal
 ```
 
 - **`receiver/`** -- FastAPI service implementing `/v3/samples`,
@@ -53,13 +57,22 @@ Curb device  --(HTTP, real Curb protocol)-->  receiver  -->  TimescaleDB  <--  G
   endpoints. Decodes the device's MessagePack+zlib+CRC32 body format and
   writes into Timescale.
 - **`db/init/`** -- schema, applied automatically on first boot of the
-  `timescaledb` container.
-- **`grafana/`** -- pre-provisioned datasource + a starter "Curb Overview"
-  dashboard (per-circuit power, per-leg voltage/frequency/power factor,
-  device status).
+  `timescaledb` container -- including `circuit_config` (see
+  `config-portal/` below) and the restricted DB role that reads/writes it.
+- **`grafana/`** -- pre-provisioned datasource + two cross-linked
+  dashboards: "Curb Overview" (whole-system summary) and "Curb Circuit
+  Detail" (per-circuit power charts plus daily/weekly/monthly usage & cost,
+  using a price you set in the dashboard).
+- **`config-portal/`** -- tiny standalone web UI (default port 8082) for
+  flipping the "display inverted" flag on a circuit whose CT clamp is wired
+  backwards. Connects to Postgres as a role that can only read
+  `circuit_config` and write its one boolean column -- see docs/NAS.md.
 - **`examples/`** -- before/after `hub-config.json` examples and a script
   that safely patches just the `endpoints` block of your device's real
   config, leaving its actual sensor calibration untouched.
+- **`scripts/`** -- `init-data-dir.sh`, a one-time setup step that creates
+  the host directories `CURB_DATA_DIR` points at (Docker Compose won't
+  bind-mount a path that doesn't already exist).
 
 ## Multiple devices, multiple people
 

@@ -7,6 +7,9 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-curb}
       - POSTGRES_USER=${POSTGRES_USER:-curb}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Only read by db/init/002_circuit_config.sh on a brand-new database,
+      # to set the circuit_portal role's password -- see that file.
+      - PORTAL_DB_PASSWORD=${PORTAL_DB_PASSWORD:?set PORTAL_DB_PASSWORD in .env}
     volumes:
       # Bind-mounted (not a named volume) so the real data files sit at a
       # path your own backup tooling -- NAS snapshots, rsync, etc. -- can
@@ -84,3 +87,24 @@ services:
       - ${CURB_DATA_DIR:-./data}/grafana:/var/lib/grafana
     ports:
       - "${GRAFANA_PORT:-3000}:3000"
+
+  config-portal:
+    # Small standalone web UI for flipping the invert_display flag on
+    # circuit_config -- see db/init/002_circuit_config.sh for the table
+    # this reads/writes and config-portal/app.py for the app itself.
+    # Stateless (no volumes), and connects to Postgres as the restricted
+    # `circuit_portal` role -- it cannot read or write anything besides
+    # that one table/column, enforced by Postgres, not by this app's code.
+    build: ./config-portal
+    container_name: curb-config-portal
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_DB=${POSTGRES_DB:-curb}
+      - PORTAL_DB_USER=circuit_portal
+      - PORTAL_DB_PASSWORD=${PORTAL_DB_PASSWORD:?set PORTAL_DB_PASSWORD in .env}
+    ports:
+      - "${CURB_CONFIG_PORTAL_PORT:-8082}:8080"

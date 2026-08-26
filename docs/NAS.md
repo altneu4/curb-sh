@@ -124,7 +124,47 @@ has `build: ./db` and `build: ./grafana` (not `image:`) for those two
 services -- if you're not, `git pull` and redeploy the stack fresh (delete
 and re-add it in Portainer, not just "Update the stack", so it re-clones).
 
-## 6. Backups
+## 6. Circuit display configuration (the config-portal service)
+
+If a CT clamp is wired backwards on a circuit, it reports negative watts for
+real positive draw, permanently. The `config-portal` service is a small web
+UI (default port 8082, e.g. `http://<your-nas>:8082`) for flipping a
+per-circuit "invert display" flag that both dashboards read from. New
+circuits show up there automatically the first time they report a sample --
+nothing to configure by hand for a circuit that isn't inverted.
+
+This depends on a new database table/trigger/role
+(`db/init/002_circuit_config.sh`) and a new `PORTAL_DB_PASSWORD` value in
+`.env`. Two things to do once when you first pull this update, neither of
+which happens automatically on an existing deployment:
+
+1. **Add `PORTAL_DB_PASSWORD` to your `.env`** (see `.env.example`) --
+   `timescaledb` and `config-portal` both refuse to start without it.
+
+2. **Run the migration once by hand.** `002_circuit_config.sh` only runs
+   automatically the way `001_schema.sql` did on a *brand-new* database --
+   Postgres only executes `/docker-entrypoint-initdb.d` scripts against an
+   empty data directory, and yours already has data. After redeploying the
+   stack (so the new `circuit_portal` role's password matches what you put
+   in `.env`), run this once, substituting your own `POSTGRES_DB`/
+   `POSTGRES_USER` if you changed them from the defaults and the same value
+   you set for `PORTAL_DB_PASSWORD`:
+
+   ```
+   docker exec -i curb-timescaledb env PORTAL_DB_PASSWORD='<your PORTAL_DB_PASSWORD>' \
+     sh -c 'POSTGRES_USER=curb POSTGRES_DB=curb PORTAL_DB_PASSWORD="$PORTAL_DB_PASSWORD" /docker-entrypoint-initdb.d/002_circuit_config.sh'
+   ```
+
+   This is safe to run more than once -- it only ever adds circuits that
+   don't already have a config row, and only ever resets the
+   `circuit_portal` role's password to match `.env`, never any dashboard
+   settings.
+
+If you'd already set the old `invert_circuits` textbox variable on either
+dashboard, that variable no longer exists -- re-set the same circuit(s) as
+inverted in the config portal instead; it's the one place this lives now.
+
+## 7. Backups
 
 Back up `${CURB_DATA_DIR}` (both the `pgdata` and `grafana` subdirectories
 under it) with whatever mechanism your NAS already provides -- a scheduled
