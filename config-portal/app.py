@@ -1,16 +1,17 @@
 """Curb circuit configuration portal.
 
 A tiny, single-purpose web UI: list every circuit that's ever reported a
-sample, and let someone flip whether its power reading should be displayed
-inverted (for a CT clamp wired backwards, which reports negative watts for
-real positive draw). Nothing else.
+sample, let someone set a friendly label for it (shown on the dashboards in
+place of "Group X Circuit Y"), and flip whether its power reading should be
+displayed inverted (for a CT clamp wired backwards, which reports negative
+watts for real positive draw). Nothing else.
 
 Deliberately not a general admin tool -- it connects to Postgres as the
 `circuit_portal` role, which only has SELECT on circuit_config and UPDATE on
-its invert_display column (see db/init/002_circuit_config.sh). Even a bug
-here can't touch circuit_samples, group_samples, devices, or any other data,
-because Postgres itself refuses it at the connection level, not because this
-code happens to be careful.
+its invert_display and label columns (see db/init/002_circuit_config.sh and
+db/init/003_circuit_label.sql). Even a bug here can't touch circuit_samples,
+group_samples, devices, or any other data, because Postgres itself refuses
+it at the connection level, not because this code happens to be careful.
 
 No login -- same trust model as Grafana and the receiver in this stack:
 reachable only on your LAN, not exposed to the internet. If that ever
@@ -39,7 +40,7 @@ PAGE = """
 <!doctype html>
 <title>Curb Circuit Configuration</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #222; }
   h1 { font-size: 1.4rem; }
   p.help { color: #555; line-height: 1.4; }
   table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
@@ -47,29 +48,44 @@ PAGE = """
   th { color: #555; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
   .inverted { color: #b00020; font-weight: 600; }
   .normal { color: #1a7a1a; }
-  form { margin: 0; }
+  form { margin: 0; display: flex; gap: 0.4rem; align-items: center; }
+  input[type=text] {
+    border: 1px solid #ccc; border-radius: 4px; padding: 0.35rem 0.5rem;
+    font-size: 0.9rem; width: 11rem;
+  }
   button {
     cursor: pointer; border: 1px solid #ccc; background: #f7f7f7;
     border-radius: 4px; padding: 0.35rem 0.7rem; font-size: 0.9rem;
+    white-space: nowrap;
   }
   button:hover { background: #eee; }
   .empty { color: #777; font-style: italic; margin-top: 1rem; }
 </style>
 <h1>Curb Circuit Configuration</h1>
 <p class="help">
-  Controls whether a circuit's power reading is shown inverted on the Curb
-  dashboards -- for circuits with a CT clamp wired backwards, which always
+  Set a friendly label for each circuit (shown on the dashboards in place of
+  "Group X Circuit Y") and control whether its power reading is displayed
+  inverted -- for circuits with a CT clamp wired backwards, which always
   report negative watts for real positive draw. New circuits show up here
   automatically the first time they report a sample.
 </p>
 {% if rows %}
 <table>
-  <tr><th>Device</th><th>Group</th><th>Circuit</th><th>Display</th><th></th></tr>
+  <tr><th>Device</th><th>Group</th><th>Circuit</th><th>Label</th><th>Display</th><th></th></tr>
   {% for row in rows %}
   <tr>
     <td>{{ row.serial_number }}</td>
     <td>{{ row.group_idx }}</td>
     <td>{{ row.circuit_idx }}</td>
+    <td>
+      <form method="post" action="{{ url_for('set_label') }}">
+        <input type="hidden" name="serial_number" value="{{ row.serial_number }}">
+        <input type="hidden" name="group_idx" value="{{ row.group_idx }}">
+        <input type="hidden" name="circuit_idx" value="{{ row.circuit_idx }}">
+        <input type="text" name="label" value="{{ row.label or '' }}" placeholder="e.g. Kitchen" maxlength="100">
+        <button type="submit">Save</button>
+      </form>
+    </td>
     <td class="{{ 'inverted' if row.invert_display else 'normal' }}">
       {{ 'Inverted' if row.invert_display else 'Normal' }}
     </td>
@@ -98,7 +114,7 @@ def index():
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT serial_number, group_idx, circuit_idx, invert_display "
+                "SELECT serial_number, group_idx, circuit_idx, invert_display, label "
                 "FROM circuit_config "
                 "ORDER BY serial_number, group_idx, circuit_idx"
             )
@@ -125,6 +141,33 @@ def toggle():
                 "UPDATE circuit_config SET invert_display = NOT invert_display "
                 "WHERE serial_number = %s AND group_idx = %s AND circuit_idx = %s",
                 (serial_number, group_idx, circuit_idx),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(url_for("index"))
+
+
+@app.route("/label", methods=["POST"])
+def set_label():
+    try:
+        serial_number = request.form["serial_number"]
+        group_idx = int(request.form["group_idx"])
+        circuit_idx = int(request.form["circuit_idx"])
+    except (KeyError, ValueError):
+        abort(400)
+
+    # Blank input clears the label (falls back to "Group X Circuit Y" on the
+    # dashboards) rather than storing an empty string.
+    label = request.form.get("label", "").strip() or None
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE circuit_config SET label = %s "
+                "WHERE serial_number = %s AND group_idx = %s AND circuit_idx = %s",
+                (label, serial_number, group_idx, circuit_idx),
             )
         conn.commit()
     finally:

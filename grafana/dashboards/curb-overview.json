@@ -62,7 +62,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT cs.time AS \"time\", cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END AS \"value\", concat('G', cs.group_idx, ' C', cs.circuit_idx) AS metric FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND $__timeFilter(cs.time) ORDER BY cs.time"
+          "rawSql": "SELECT cs.time AS \"time\", cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END AS \"value\", COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS metric FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND $__timeFilter(cs.time) ORDER BY cs.time"
         }
       ]
     },
@@ -126,7 +126,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT time AS \"time\", power_factor AS \"value\", concat('G', group_idx, ' C', circuit_idx) AS metric FROM circuit_samples WHERE serial_number = '$serial' AND $__timeFilter(time) ORDER BY time"
+          "rawSql": "SELECT cs.time AS \"time\", cs.power_factor AS \"value\", COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS metric FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND $__timeFilter(cs.time) ORDER BY cs.time"
         }
       ]
     }

@@ -164,6 +164,23 @@ If you'd already set the old `invert_circuits` textbox variable on either
 dashboard, that variable no longer exists -- re-set the same circuit(s) as
 inverted in the config portal instead; it's the one place this lives now.
 
+**Circuit labels.** The portal also lets you set a friendly label per
+circuit (e.g. "Kitchen"), shown on both dashboards in place of "Group X
+Circuit Y" wherever it's set. This needs one more one-time manual step on
+an existing deployment, for the same reason as above -- run this after
+you've already applied `002_circuit_config.sh` per step 2:
+
+```
+docker exec -i curb-timescaledb psql -U curb -d curb <<'SQL'
+ALTER TABLE circuit_config ADD COLUMN IF NOT EXISTS label TEXT;
+GRANT UPDATE (label) ON circuit_config TO circuit_portal;
+SQL
+```
+
+(Substitute your own `POSTGRES_USER`/`POSTGRES_DB` in the `-U`/`-d` flags if
+you changed them from the defaults. No password needed here, unlike step 2
+above -- this one doesn't create or touch any role's password.)
+
 ## 7. Backups
 
 Back up `${CURB_DATA_DIR}` (both the `pgdata` and `grafana` subdirectories
