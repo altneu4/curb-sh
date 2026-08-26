@@ -74,7 +74,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT time AS \"time\", watts AS \"value\", concat('G', group_idx, ' C', circuit_idx) AS metric FROM circuit_samples WHERE serial_number = '$serial' AND concat(group_idx, '_', circuit_idx) = '$circuit' AND $__timeFilter(time) ORDER BY time"
+          "rawSql": "SELECT time AS \"time\", watts AS \"value\", concat('G', group_idx, ' C', circuit_idx) AS metric FROM circuit_samples WHERE serial_number = '$serial' AND concat(group_idx, '_', circuit_idx) = '${circuit:raw}' AND $__timeFilter(time) ORDER BY time"
         }
       ]
     },
