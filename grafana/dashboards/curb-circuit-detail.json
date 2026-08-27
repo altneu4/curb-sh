@@ -74,7 +74,42 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT cs.time AS \"time\", cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END AS \"value\", COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS metric FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND concat(cs.group_idx, '_', cs.circuit_idx) = '${circuit:raw}' AND $__timeFilter(cs.time) ORDER BY cs.time"
+          "rawSql": "SELECT cs.time AS \"time\", cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END * CASE WHEN COALESCE(cc.is_240v_single_clamp, false) THEN 2 ELSE 1 END AS \"value\", COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS metric FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND concat(cs.group_idx, '_', cs.circuit_idx) = '${circuit:raw}' AND $__timeFilter(cs.time) ORDER BY cs.time"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Breaker Capacity (%) -- $circuit",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 9 },
+      "repeat": "circuit",
+      "repeatDirection": "v",
+      "datasource": { "type": "postgres", "uid": "timescale" },
+      "description": "Measured current as a percentage of the circuit's breaker rating (current_a / breaker_amps * 100) -- set the breaker's amperage for a circuit in the config portal to populate this; shows no data until then. The 80%/100% thresholds are a visual heads-up, not an electrical-code claim -- adjust to your own comfort level.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 80 },
+              { "color": "red", "value": 100 }
+            ]
+          },
+          "custom": { "thresholdsStyle": { "mode": "line" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT cs.time AS \"time\", (cs.current_a / NULLIF(cc.breaker_amps, 0)) * 100 AS \"value\", COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS metric FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND concat(cs.group_idx, '_', cs.circuit_idx) = '${circuit:raw}' AND $__timeFilter(cs.time) ORDER BY cs.time"
         }
       ]
     },
@@ -82,13 +117,13 @@
       "id": 101,
       "type": "row",
       "title": "Circuit Usage & Cost (set price in the \"Price per 1000 kWh\" box above)",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 }
     },
     {
       "id": 8,
       "title": "Today -- $serial",
       "type": "table",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
       "datasource": { "type": "postgres", "uid": "timescale" },
       "fieldConfig": {
         "defaults": { "custom": { "align": "auto" } },
@@ -102,7 +137,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH deltas AS (SELECT cs.group_idx, cs.circuit_idx, COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS circuit_label, cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END AS watts, EXTRACT(EPOCH FROM (cs.time - LAG(cs.time) OVER (PARTITION BY cs.group_idx, cs.circuit_idx ORDER BY cs.time))) AS dt_seconds FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND cs.time >= date_trunc('day', now())) SELECT circuit_label AS \"Circuit\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0)::numeric, 3) AS \"kWh\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0 * (${price_per_1000kwh} / 1000.0))::numeric, 2) AS \"Cost ($)\" FROM deltas GROUP BY group_idx, circuit_idx, circuit_label ORDER BY group_idx, circuit_idx"
+          "rawSql": "WITH deltas AS (SELECT cs.group_idx, cs.circuit_idx, COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS circuit_label, cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END * CASE WHEN COALESCE(cc.is_240v_single_clamp, false) THEN 2 ELSE 1 END AS watts, EXTRACT(EPOCH FROM (cs.time - LAG(cs.time) OVER (PARTITION BY cs.group_idx, cs.circuit_idx ORDER BY cs.time))) AS dt_seconds FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND cs.time >= date_trunc('day', now())) SELECT circuit_label AS \"Circuit\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0)::numeric, 3) AS \"kWh\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0 * (${price_per_1000kwh} / 1000.0))::numeric, 2) AS \"Cost ($)\" FROM deltas GROUP BY group_idx, circuit_idx, circuit_label ORDER BY group_idx, circuit_idx"
         }
       ]
     },
@@ -110,7 +145,7 @@
       "id": 9,
       "title": "This Week -- $serial",
       "type": "table",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
       "datasource": { "type": "postgres", "uid": "timescale" },
       "fieldConfig": {
         "defaults": { "custom": { "align": "auto" } },
@@ -124,7 +159,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH deltas AS (SELECT cs.group_idx, cs.circuit_idx, COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS circuit_label, cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END AS watts, EXTRACT(EPOCH FROM (cs.time - LAG(cs.time) OVER (PARTITION BY cs.group_idx, cs.circuit_idx ORDER BY cs.time))) AS dt_seconds FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND cs.time >= date_trunc('week', now())) SELECT circuit_label AS \"Circuit\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0)::numeric, 3) AS \"kWh\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0 * (${price_per_1000kwh} / 1000.0))::numeric, 2) AS \"Cost ($)\" FROM deltas GROUP BY group_idx, circuit_idx, circuit_label ORDER BY group_idx, circuit_idx"
+          "rawSql": "WITH deltas AS (SELECT cs.group_idx, cs.circuit_idx, COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS circuit_label, cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END * CASE WHEN COALESCE(cc.is_240v_single_clamp, false) THEN 2 ELSE 1 END AS watts, EXTRACT(EPOCH FROM (cs.time - LAG(cs.time) OVER (PARTITION BY cs.group_idx, cs.circuit_idx ORDER BY cs.time))) AS dt_seconds FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND cs.time >= date_trunc('week', now())) SELECT circuit_label AS \"Circuit\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0)::numeric, 3) AS \"kWh\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0 * (${price_per_1000kwh} / 1000.0))::numeric, 2) AS \"Cost ($)\" FROM deltas GROUP BY group_idx, circuit_idx, circuit_label ORDER BY group_idx, circuit_idx"
         }
       ]
     },
@@ -132,7 +167,7 @@
       "id": 10,
       "title": "This Month -- $serial",
       "type": "table",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
       "datasource": { "type": "postgres", "uid": "timescale" },
       "fieldConfig": {
         "defaults": { "custom": { "align": "auto" } },
@@ -146,7 +181,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH deltas AS (SELECT cs.group_idx, cs.circuit_idx, COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS circuit_label, cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END AS watts, EXTRACT(EPOCH FROM (cs.time - LAG(cs.time) OVER (PARTITION BY cs.group_idx, cs.circuit_idx ORDER BY cs.time))) AS dt_seconds FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND cs.time >= date_trunc('month', now())) SELECT circuit_label AS \"Circuit\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0)::numeric, 3) AS \"kWh\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0 * (${price_per_1000kwh} / 1000.0))::numeric, 2) AS \"Cost ($)\" FROM deltas GROUP BY group_idx, circuit_idx, circuit_label ORDER BY group_idx, circuit_idx"
+          "rawSql": "WITH deltas AS (SELECT cs.group_idx, cs.circuit_idx, COALESCE(cc.label, concat('G', cs.group_idx, ' C', cs.circuit_idx)) AS circuit_label, cs.watts * CASE WHEN COALESCE(cc.invert_display, false) THEN -1 ELSE 1 END * CASE WHEN COALESCE(cc.is_240v_single_clamp, false) THEN 2 ELSE 1 END AS watts, EXTRACT(EPOCH FROM (cs.time - LAG(cs.time) OVER (PARTITION BY cs.group_idx, cs.circuit_idx ORDER BY cs.time))) AS dt_seconds FROM circuit_samples cs LEFT JOIN circuit_config cc ON cc.serial_number = cs.serial_number AND cc.group_idx = cs.group_idx AND cc.circuit_idx = cs.circuit_idx WHERE cs.serial_number = '$serial' AND cs.time >= date_trunc('month', now())) SELECT circuit_label AS \"Circuit\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0)::numeric, 3) AS \"kWh\", ROUND((SUM(watts * LEAST(COALESCE(dt_seconds, 0), 300)) / 3600.0 / 1000.0 * (${price_per_1000kwh} / 1000.0))::numeric, 2) AS \"Cost ($)\" FROM deltas GROUP BY group_idx, circuit_idx, circuit_label ORDER BY group_idx, circuit_idx"
         }
       ]
     }

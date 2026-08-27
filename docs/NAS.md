@@ -177,6 +177,22 @@ GRANT UPDATE (label) ON circuit_config TO circuit_portal;
 SQL
 ```
 
+**Breaker amperage and 240V-single-clamp.** Same portal, two more optional
+per-circuit settings: a breaker's rated amperage (feeds the "Breaker
+Capacity (%)" panel on Circuit Detail) and whether a 240V circuit is
+monitored by a clamp on only one leg (doubles the computed watts/kWh/cost to
+correct for it -- see the config-portal help text for the full explanation).
+Same one-time step, run after the label migration above:
+
+```
+docker exec -i curb-timescaledb psql -U curb -d curb <<'SQL'
+ALTER TABLE circuit_config ADD COLUMN IF NOT EXISTS breaker_amps DOUBLE PRECISION
+    CONSTRAINT circuit_config_breaker_amps_positive CHECK (breaker_amps IS NULL OR breaker_amps > 0);
+ALTER TABLE circuit_config ADD COLUMN IF NOT EXISTS is_240v_single_clamp BOOLEAN NOT NULL DEFAULT false;
+GRANT UPDATE (breaker_amps, is_240v_single_clamp) ON circuit_config TO circuit_portal;
+SQL
+```
+
 (Substitute your own `POSTGRES_USER`/`POSTGRES_DB` in the `-U`/`-d` flags if
 you changed them from the defaults. No password needed here, unlike step 2
 above -- this one doesn't create or touch any role's password.)

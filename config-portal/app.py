@@ -1,17 +1,22 @@
 """Curb circuit configuration portal.
 
 A tiny, single-purpose web UI: list every circuit that's ever reported a
-sample, let someone set a friendly label for it (shown on the dashboards in
-place of "Group X Circuit Y"), and flip whether its power reading should be
-displayed inverted (for a CT clamp wired backwards, which reports negative
-watts for real positive draw). Nothing else.
+sample, and let someone set:
+  - a friendly label (shown on the dashboards in place of "Group X Circuit Y")
+  - whether its power reading should be displayed inverted (for a CT clamp
+    wired backwards, which reports negative watts for real positive draw)
+  - its breaker's rated amperage (feeds a "% of breaker capacity" panel)
+  - whether it's a 240V circuit monitored by a single-leg clamp (doubles the
+    computed watts/kWh/cost to correct for the un-clamped leg)
+Nothing else.
 
 Deliberately not a general admin tool -- it connects to Postgres as the
 `circuit_portal` role, which only has SELECT on circuit_config and UPDATE on
-its invert_display and label columns (see db/init/002_circuit_config.sh and
-db/init/003_circuit_label.sql). Even a bug here can't touch circuit_samples,
-group_samples, devices, or any other data, because Postgres itself refuses
-it at the connection level, not because this code happens to be careful.
+these four columns specifically (see db/init/002_circuit_config.sh,
+db/init/003_circuit_label.sql, and db/init/004_circuit_electrical.sql). Even
+a bug here can't touch circuit_samples, group_samples, devices, or any other
+data, because Postgres itself refuses it at the connection level, not
+because this code happens to be careful.
 
 No login -- same trust model as Grafana and the receiver in this stack:
 reachable only on your LAN, not exposed to the internet. If that ever
@@ -49,10 +54,12 @@ PAGE = """
   .inverted { color: #b00020; font-weight: 600; }
   .normal { color: #1a7a1a; }
   form { margin: 0; display: flex; gap: 0.4rem; align-items: center; }
-  input[type=text] {
+  input[type=text], input[type=number] {
     border: 1px solid #ccc; border-radius: 4px; padding: 0.35rem 0.5rem;
-    font-size: 0.9rem; width: 11rem;
+    font-size: 0.9rem;
   }
+  input[type=text] { width: 10rem; }
+  input[type=number] { width: 5rem; }
   button {
     cursor: pointer; border: 1px solid #ccc; background: #f7f7f7;
     border-radius: 4px; padding: 0.35rem 0.7rem; font-size: 0.9rem;
@@ -60,18 +67,28 @@ PAGE = """
   }
   button:hover { background: #eee; }
   .empty { color: #777; font-style: italic; margin-top: 1rem; }
+  .flag-on { color: #b00020; font-weight: 600; }
+  .flag-off { color: #777; }
+  table { table-layout: auto; }
 </style>
 <h1>Curb Circuit Configuration</h1>
 <p class="help">
   Set a friendly label for each circuit (shown on the dashboards in place of
-  "Group X Circuit Y") and control whether its power reading is displayed
-  inverted -- for circuits with a CT clamp wired backwards, which always
-  report negative watts for real positive draw. New circuits show up here
-  automatically the first time they report a sample.
+  "Group X Circuit Y"), its breaker's rated amperage (feeds a "% of breaker
+  capacity" panel), whether a 240V circuit is monitored by a single-leg
+  clamp (doubles the computed power to correct for the un-clamped leg), and
+  whether its power reading should be displayed inverted (for a CT clamp
+  wired backwards, which always reports negative watts for real positive
+  draw). New circuits show up here automatically the first time they report
+  a sample.
 </p>
 {% if rows %}
+<div style="overflow-x: auto;">
 <table>
-  <tr><th>Device</th><th>Group</th><th>Circuit</th><th>Label</th><th>Display</th><th></th></tr>
+  <tr>
+    <th>Device</th><th>Group</th><th>Circuit</th><th>Label</th>
+    <th>Breaker (A)</th><th>240V, 1 clamp</th><th>Display</th>
+  </tr>
   {% for row in rows %}
   <tr>
     <td>{{ row.serial_number }}</td>
@@ -86,10 +103,28 @@ PAGE = """
         <button type="submit">Save</button>
       </form>
     </td>
-    <td class="{{ 'inverted' if row.invert_display else 'normal' }}">
-      {{ 'Inverted' if row.invert_display else 'Normal' }}
-    </td>
     <td>
+      <form method="post" action="{{ url_for('set_breaker_amps') }}">
+        <input type="hidden" name="serial_number" value="{{ row.serial_number }}">
+        <input type="hidden" name="group_idx" value="{{ row.group_idx }}">
+        <input type="hidden" name="circuit_idx" value="{{ row.circuit_idx }}">
+        <input type="number" name="breaker_amps" value="{{ row.breaker_amps or '' }}" placeholder="e.g. 20" min="1" step="1">
+        <button type="submit">Save</button>
+      </form>
+    </td>
+    <td class="{{ 'flag-on' if row.is_240v_single_clamp else 'flag-off' }}">
+      {{ 'Yes' if row.is_240v_single_clamp else 'No' }}
+      <form method="post" action="{{ url_for('toggle_240v') }}">
+        <input type="hidden" name="serial_number" value="{{ row.serial_number }}">
+        <input type="hidden" name="group_idx" value="{{ row.group_idx }}">
+        <input type="hidden" name="circuit_idx" value="{{ row.circuit_idx }}">
+        <button type="submit">
+          {{ 'Unmark' if row.is_240v_single_clamp else 'Mark' }}
+        </button>
+      </form>
+    </td>
+    <td class="{{ 'flag-on' if row.invert_display else 'flag-off' }}">
+      {{ 'Inverted' if row.invert_display else 'Normal' }}
       <form method="post" action="{{ url_for('toggle') }}">
         <input type="hidden" name="serial_number" value="{{ row.serial_number }}">
         <input type="hidden" name="group_idx" value="{{ row.group_idx }}">
@@ -102,6 +137,7 @@ PAGE = """
   </tr>
   {% endfor %}
 </table>
+</div>
 {% else %}
 <p class="empty">No circuits reported yet -- once your device starts sending samples, they'll appear here.</p>
 {% endif %}
@@ -114,7 +150,8 @@ def index():
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT serial_number, group_idx, circuit_idx, invert_display, label "
+                "SELECT serial_number, group_idx, circuit_idx, invert_display, label, "
+                "       breaker_amps, is_240v_single_clamp "
                 "FROM circuit_config "
                 "ORDER BY serial_number, group_idx, circuit_idx"
             )
@@ -168,6 +205,68 @@ def set_label():
                 "UPDATE circuit_config SET label = %s "
                 "WHERE serial_number = %s AND group_idx = %s AND circuit_idx = %s",
                 (label, serial_number, group_idx, circuit_idx),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(url_for("index"))
+
+
+@app.route("/breaker", methods=["POST"])
+def set_breaker_amps():
+    try:
+        serial_number = request.form["serial_number"]
+        group_idx = int(request.form["group_idx"])
+        circuit_idx = int(request.form["circuit_idx"])
+    except (KeyError, ValueError):
+        abort(400)
+
+    # Blank input clears it (the breaker-capacity panel just shows no data
+    # for this circuit until it's set again) rather than storing a 0 or
+    # negative value -- the database's own CHECK constraint would reject
+    # those anyway, but validating here gives a cleaner error than a raw SQL
+    # failure.
+    raw = request.form.get("breaker_amps", "").strip()
+    if raw == "":
+        breaker_amps = None
+    else:
+        try:
+            breaker_amps = float(raw)
+        except ValueError:
+            abort(400)
+        if breaker_amps <= 0:
+            abort(400)
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE circuit_config SET breaker_amps = %s "
+                "WHERE serial_number = %s AND group_idx = %s AND circuit_idx = %s",
+                (breaker_amps, serial_number, group_idx, circuit_idx),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(url_for("index"))
+
+
+@app.route("/240v/toggle", methods=["POST"])
+def toggle_240v():
+    try:
+        serial_number = request.form["serial_number"]
+        group_idx = int(request.form["group_idx"])
+        circuit_idx = int(request.form["circuit_idx"])
+    except (KeyError, ValueError):
+        abort(400)
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE circuit_config SET is_240v_single_clamp = NOT is_240v_single_clamp "
+                "WHERE serial_number = %s AND group_idx = %s AND circuit_idx = %s",
+                (serial_number, group_idx, circuit_idx),
             )
         conn.commit()
     finally:
